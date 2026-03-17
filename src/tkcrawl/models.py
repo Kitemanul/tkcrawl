@@ -10,6 +10,10 @@ class AuthorInfo(BaseModel):
     sec_uid: str = ""
     nickname: str = ""
     avatar_url: str = ""
+    follower_count: int = 0
+    following_count: int = 0
+    total_favorited: int = 0
+    aweme_count: int = 0
 
 
 class VideoStats(BaseModel):
@@ -30,6 +34,11 @@ class VideoInfo(BaseModel):
     create_time: int = 0
     duration: int = 0
     hashtags: list[str] = Field(default_factory=list)
+
+    @property
+    def is_valid(self) -> bool:
+        """数据是否有效（非广告/占位/预加载）"""
+        return bool(self.desc or self.author.nickname)
 
     @classmethod
     def from_aweme(cls, data: dict) -> VideoInfo:
@@ -54,7 +63,7 @@ class VideoInfo(BaseModel):
 
         # 提取话题标签
         hashtags = []
-        text_extra = data.get("text_extra", [])
+        text_extra = data.get("text_extra") or []
         for item in text_extra:
             tag = item.get("hashtag_name", "")
             if tag:
@@ -71,6 +80,10 @@ class VideoInfo(BaseModel):
                     author_data.get("avatar_thumb", {})
                     .get("url_list", [""])[0]
                 ),
+                follower_count=author_data.get("follower_count", 0),
+                following_count=author_data.get("following_count", 0),
+                total_favorited=int(author_data.get("total_favorited", 0) or 0),
+                aweme_count=author_data.get("aweme_count", 0),
             ),
             stats=VideoStats(
                 play_count=stats_data.get("play_count", 0),

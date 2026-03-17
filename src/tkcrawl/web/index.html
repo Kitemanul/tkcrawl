@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>知空</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+<div id="app" class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <h1 class="logo">
+        <span class="logo-zhi">知</span><span class="logo-kong">空</span>
+      </h1>
+      <span class="tagline">抖音数据探索</span>
+      <div style="flex:1"></div>
+      <span class="auth-badge" :class="loggedIn ? 'auth-yes' : 'auth-no'">
+        {{ loggedIn ? '已登录' : '未登录' }}
+      </span>
+    </div>
+    <nav>
+      <a :class="{ active: view === 'dashboard' }" @click="go('dashboard')">数据</a>
+      <a :class="{ active: view === 'crawl' }" @click="go('crawl')">采集</a>
+    </nav>
+  </header>
+
+  <!-- Dashboard -->
+  <main v-if="view === 'dashboard'">
+    <div class="toolbar">
+      <span class="toolbar-info">共 {{ total }} 个视频，显示 {{ filteredVideos.length }} 条</span>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost" @click="showFilters = !showFilters">
+        {{ showFilters ? '收起筛选' : '展开筛选' }}
+      </button>
+      <button class="btn btn-ghost" @click="resetFilters">重置</button>
+      <button class="btn btn-ghost" @click="loadVideos">刷新</button>
+      <button class="btn btn-primary" @click="exportExcel" :disabled="!filteredVideos.length">导出 Excel</button>
+    </div>
+
+    <!-- 筛选面板 -->
+    <div class="filter-panel" v-show="showFilters">
+      <div class="filter-grid">
+        <div class="filter-item">
+          <label>关键词</label>
+          <input type="text" v-model="f.keyword" placeholder="标题/描述...">
+        </div>
+        <div class="filter-item">
+          <label>视频 ID</label>
+          <input type="text" v-model="f.awemeId" placeholder="aweme_id">
+        </div>
+        <div class="filter-item">
+          <label>作者昵称</label>
+          <input type="text" v-model="f.author" placeholder="作者...">
+        </div>
+        <div class="filter-item">
+          <label>话题标签</label>
+          <input type="text" v-model="f.hashtag" placeholder="#标签">
+        </div>
+        <div class="filter-item filter-range">
+          <label>点赞数</label>
+          <div class="range-inputs">
+            <input type="number" v-model.number="f.diggMin" placeholder="最小">
+            <span class="range-sep">~</span>
+            <input type="number" v-model.number="f.diggMax" placeholder="最大">
+          </div>
+        </div>
+        <div class="filter-item filter-range">
+          <label>评论数</label>
+          <div class="range-inputs">
+            <input type="number" v-model.number="f.commentMin" placeholder="最小">
+            <span class="range-sep">~</span>
+            <input type="number" v-model.number="f.commentMax" placeholder="最大">
+          </div>
+        </div>
+        <div class="filter-item filter-range">
+          <label>粉丝数</label>
+          <div class="range-inputs">
+            <input type="number" v-model.number="f.fansMin" placeholder="最小">
+            <span class="range-sep">~</span>
+            <input type="number" v-model.number="f.fansMax" placeholder="最大">
+          </div>
+        </div>
+        <div class="filter-item filter-range">
+          <label>分享数</label>
+          <div class="range-inputs">
+            <input type="number" v-model.number="f.shareMin" placeholder="最小">
+            <span class="range-sep">~</span>
+            <input type="number" v-model.number="f.shareMax" placeholder="最大">
+          </div>
+        </div>
+        <div class="filter-item filter-range">
+          <label>收藏数</label>
+          <div class="range-inputs">
+            <input type="number" v-model.number="f.collectMin" placeholder="最小">
+            <span class="range-sep">~</span>
+            <input type="number" v-model.number="f.collectMax" placeholder="最大">
+          </div>
+        </div>
+        <div class="filter-item filter-range">
+          <label>发布时间</label>
+          <div class="range-inputs">
+            <input type="date" v-model="f.dateFrom">
+            <span class="range-sep">~</span>
+            <input type="date" v-model="f.dateTo">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="filteredVideos.length" class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="col-cover">封面</th>
+            <th class="col-desc" @click="sortBy('desc')">标题 {{ sortIcon('desc') }}</th>
+            <th @click="sortBy('author')">作者 {{ sortIcon('author') }}</th>
+            <th class="col-num" @click="sortBy('digg')">点赞 {{ sortIcon('digg') }}</th>
+            <th class="col-num" @click="sortBy('comment')">评论 {{ sortIcon('comment') }}</th>
+            <th class="col-num" @click="sortBy('share')">分享 {{ sortIcon('share') }}</th>
+            <th class="col-num" @click="sortBy('collect')">收藏 {{ sortIcon('collect') }}</th>
+            <th class="col-num" @click="sortBy('fans')">粉丝 {{ sortIcon('fans') }}</th>
+            <th class="col-time" @click="sortBy('time')">发布 {{ sortIcon('time') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="v in filteredVideos" :key="v.aweme_id" @click="openVideo(v.aweme_id)">
+            <td class="col-cover">
+              <img class="table-cover" :src="v.cover_url" loading="lazy" onerror="this.style.visibility='hidden'">
+            </td>
+            <td class="col-desc">
+              <span class="table-desc">{{ v.desc || '(无标题)' }}</span>
+              <div class="table-tags" v-if="v.hashtags?.length">
+                <span class="mini-tag" v-for="t in v.hashtags.slice(0,3)" :key="t">#{{ t }}</span>
+              </div>
+            </td>
+            <td>
+              <a v-if="v.author?.sec_uid" class="author-link" :href="'https://www.douyin.com/user/' + v.author.sec_uid" target="_blank" @click.stop>{{ v.author?.nickname || '' }}</a>
+              <span v-else>{{ v.author?.nickname || '' }}</span>
+            </td>
+            <td class="col-num">{{ formatNum(v.stats?.digg_count) }}</td>
+            <td class="col-num">{{ formatNum(v.stats?.comment_count) }}</td>
+            <td class="col-num">{{ formatNum(v.stats?.share_count) }}</td>
+            <td class="col-num">{{ formatNum(v.stats?.collect_count) }}</td>
+            <td class="col-num">{{ formatNum(v.author?.follower_count) }}</td>
+            <td class="col-time">{{ formatTime(v.create_time) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else class="empty">
+      <div class="empty-icon">~</div>
+      <p>暂无数据，去采集页面开始吧</p>
+    </div>
+  </main>
+
+  <!-- Crawl -->
+  <main v-if="view === 'crawl'">
+
+    <!-- 登录面板 -->
+    <div class="crawl-panel" style="margin-bottom:16px">
+      <div class="panel-title">账号登录</div>
+      <div class="panel-actions" style="border-top:none; padding-top:0">
+        <span class="auth-badge" :class="loggedIn ? 'auth-yes' : 'auth-no'">
+          {{ loggedIn ? '已登录（Cookie有效）' : '未登录' }}
+        </span>
+        <div style="flex:1"></div>
+        <button class="btn btn-primary" @click="doLogin" :disabled="crawlStatus === 'running'">
+          扫码登录
+        </button>
+        <button class="btn btn-ghost" @click="checkAuth">刷新状态</button>
+      </div>
+      <p class="hint">登录后可获取个性化推荐、访问更多数据。点击扫码登录会弹出浏览器窗口。</p>
+    </div>
+
+    <!-- 采集配置 -->
+    <div class="crawl-panel">
+      <div class="panel-title">采集配置</div>
+      <div class="param-grid">
+
+        <div class="param-item">
+          <label>采集类型</label>
+          <select v-model="crawlType">
+            <option value="feed">推荐流</option>
+            <option value="video">单个视频</option>
+            <option value="user">用户作品</option>
+            <option value="comments">视频评论</option>
+            <option value="search">关键词搜索</option>
+          </select>
+        </div>
+
+        <!-- 视频/用户/评论 需要 URL -->
+        <div class="param-item" v-if="needsUrl">
+          <label>{{ urlLabel }}</label>
+          <input type="text" v-model="crawlUrl" :placeholder="urlPlaceholder">
+        </div>
+
+        <!-- 搜索需要关键词 -->
+        <div class="param-item" v-if="crawlType === 'search'">
+          <label>搜索关键词</label>
+          <input type="text" v-model="crawlKeyword" placeholder="输入关键词">
+        </div>
+
+        <!-- 搜索类型 -->
+        <div class="param-item" v-if="crawlType === 'search'">
+          <label>搜索类型</label>
+          <select v-model="crawlSearchType">
+            <option value="video">视频</option>
+            <option value="user">用户</option>
+          </select>
+        </div>
+
+        <!-- 采集数量（单个视频不需要） -->
+        <div class="param-item" v-if="crawlType !== 'video'">
+          <label>采集数量</label>
+          <input type="number" v-model.number="crawlCount" min="1" max="500">
+        </div>
+
+        <!-- 评论特有：是否采集回复 -->
+        <div class="param-item" v-if="crawlType === 'comments'">
+          <label>采集回复</label>
+          <select v-model="crawlWithReplies">
+            <option :value="false">否</option>
+            <option :value="true">是（含子评论）</option>
+          </select>
+        </div>
+
+        <!-- 补全作者信息（feed/search/video/user有效） -->
+        <div class="param-item" v-if="crawlType !== 'comments'">
+          <label>补全作者信息</label>
+          <select v-model="crawlEnrich">
+            <option :value="true">是（获取粉丝数等）</option>
+            <option :value="false">否（更快）</option>
+          </select>
+        </div>
+
+        <div class="param-item">
+          <label>浏览器模式</label>
+          <select v-model="crawlHeadless">
+            <option :value="true">无头（后台运行）</option>
+            <option :value="false">有头（可见浏览器）</option>
+          </select>
+        </div>
+
+        <div class="param-item">
+          <label>Cookie 路径</label>
+          <input type="text" v-model="crawlCookiePath" placeholder="默认 cookies/douyin_cookies.json">
+        </div>
+
+        <div class="param-item">
+          <label>输出目录</label>
+          <input type="text" v-model="crawlOutput" placeholder="默认 output">
+        </div>
+
+      </div>
+
+      <div class="panel-actions">
+        <span class="status-badge" :class="'status-' + crawlStatus">{{ statusText }}</span>
+        <span v-if="crawlStatus === 'running'" class="progress-text">
+          {{ crawlLog.length }} 条已采集
+        </span>
+        <div style="flex:1"></div>
+        <button class="btn btn-primary" @click="startCrawl" :disabled="crawlStatus === 'running' || !canStart">
+          开始采集
+        </button>
+        <button class="btn btn-danger" @click="stopCrawl" v-show="crawlStatus === 'running'">
+          停止
+        </button>
+      </div>
+    </div>
+
+    <!-- 采集日志 -->
+    <div class="crawl-panel" v-if="crawlLog.length || crawlStatus === 'running'" style="margin-top:16px">
+      <div class="panel-title">采集日志</div>
+      <div class="crawl-log">
+        <div class="log-item" v-for="item in crawlLog" :key="item.index">
+          <span class="idx">#{{ item.index }}</span>
+          <span class="log-desc">{{ item.desc || '(无标题)' }}</span>
+          <span class="log-stats" v-if="item.author">{{ item.author }} <span v-if="item.digg_count">&middot; {{ formatNum(item.digg_count) }} 赞</span></span>
+        </div>
+        <div v-if="crawlStatus === 'running' && !crawlLog.length" class="log-item" style="color:var(--text-secondary)">
+          等待数据...
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Video Detail -->
+  <main v-if="view === 'detail'">
+    <a class="back-link" @click="go('dashboard')">&larr; 返回</a>
+
+    <div v-if="detail" class="video-detail">
+      <img v-if="detail.cover_url" class="cover-large" :src="detail.cover_url" :alt="detail.desc">
+      <div class="detail-body">
+        <div class="detail-title">{{ detail.desc || '(无标题)' }}</div>
+
+        <div class="detail-meta">
+          <div class="meta-item"><span class="label">作者</span>
+            <a v-if="detail.author?.sec_uid" class="author-link" :href="'https://www.douyin.com/user/' + detail.author.sec_uid" target="_blank">{{ detail.author?.nickname }}</a>
+            <span v-else>{{ detail.author?.nickname }}</span>
+          </div>
+          <div class="meta-item"><span class="label">作者ID</span><span class="sec-uid">{{ detail.author?.sec_uid || '-' }}</span></div>
+          <div class="meta-item"><span class="label">粉丝</span>{{ formatNum(detail.author?.follower_count) }}</div>
+          <div class="meta-item"><span class="label">播放</span>{{ formatNum(detail.stats?.play_count) }}</div>
+          <div class="meta-item"><span class="label">点赞</span>{{ formatNum(detail.stats?.digg_count) }}</div>
+          <div class="meta-item"><span class="label">评论</span>{{ formatNum(detail.stats?.comment_count) }}</div>
+          <div class="meta-item"><span class="label">分享</span>{{ formatNum(detail.stats?.share_count) }}</div>
+          <div class="meta-item"><span class="label">收藏</span>{{ formatNum(detail.stats?.collect_count) }}</div>
+          <div class="meta-item"><span class="label">时长</span>{{ formatDuration(detail.duration) }}</div>
+          <div class="meta-item"><span class="label">发布</span>{{ formatTime(detail.create_time) }}</div>
+          <div class="meta-item"><span class="label">ID</span>{{ detail.aweme_id }}</div>
+        </div>
+
+        <div v-if="detail.hashtags?.length" class="tags">
+          <span class="tag" v-for="t in detail.hashtags" :key="t">#{{ t }}</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue
+
+createApp({
+  setup() {
+    const view = ref('dashboard')
+    const videos = ref([])
+    const total = ref(0)
+    const detail = ref(null)
+    const sortKey = ref('')
+    const sortAsc = ref(false)
+    const loggedIn = ref(false)
+    const showFilters = ref(false)
+
+    // 筛选条件
+    const defaultFilters = () => ({
+      keyword: '', awemeId: '', author: '', hashtag: '',
+      diggMin: null, diggMax: null,
+      commentMin: null, commentMax: null,
+      fansMin: null, fansMax: null,
+      shareMin: null, shareMax: null,
+      collectMin: null, collectMax: null,
+      dateFrom: '', dateTo: '',
+    })
+    const f = ref(defaultFilters())
+
+    function resetFilters() {
+      f.value = defaultFilters()
+    }
+
+    // Crawl params — matches all CLI options
+    const crawlType = ref('feed')
+    const crawlUrl = ref('')
+    const crawlKeyword = ref('')
+    const crawlSearchType = ref('video')
+    const crawlCount = ref(20)
+    const crawlWithReplies = ref(false)
+    const crawlHeadless = ref(true)
+    const crawlEnrich = ref(true)
+    const crawlCookiePath = ref('')
+    const crawlOutput = ref('')
+    const crawlStatus = ref('idle')
+    const crawlLog = ref([])
+    let ws = null
+
+    const statusText = computed(() => {
+      const m = { idle: '空闲', running: '采集中', stopping: '停止中' }
+      return m[crawlStatus.value] || crawlStatus.value
+    })
+
+    const needsUrl = computed(() => ['video', 'user', 'comments'].includes(crawlType.value))
+
+    const urlLabel = computed(() => {
+      const m = { video: '视频链接/ID', user: '用户主页链接', comments: '视频链接/ID' }
+      return m[crawlType.value] || 'URL'
+    })
+
+    const urlPlaceholder = computed(() => {
+      const m = {
+        video: 'https://www.douyin.com/video/xxx 或纯数字ID',
+        user: 'https://www.douyin.com/user/xxx 或 sec_user_id',
+        comments: 'https://www.douyin.com/video/xxx 或纯数字ID',
+      }
+      return m[crawlType.value] || ''
+    })
+
+    const canStart = computed(() => {
+      if (needsUrl.value && !crawlUrl.value.trim()) return false
+      if (crawlType.value === 'search' && !crawlKeyword.value.trim()) return false
+      return true
+    })
+
+    function inRange(val, min, max) {
+      if (min != null && min !== '' && val < min) return false
+      if (max != null && max !== '' && val > max) return false
+      return true
+    }
+
+    const filteredVideos = computed(() => {
+      let list = videos.value
+      const ff = f.value
+
+      list = list.filter(v => {
+        // 关键词：匹配标题
+        if (ff.keyword) {
+          const q = ff.keyword.toLowerCase()
+          if (!(v.desc || '').toLowerCase().includes(q)) return false
+        }
+        // 视频 ID
+        if (ff.awemeId) {
+          if (!(v.aweme_id || '').includes(ff.awemeId.trim())) return false
+        }
+        // 作者
+        if (ff.author) {
+          const q = ff.author.toLowerCase()
+          if (!(v.author?.nickname || '').toLowerCase().includes(q)) return false
+        }
+        // 话题标签
+        if (ff.hashtag) {
+          const q = ff.hashtag.replace('#', '').toLowerCase()
+          const tags = (v.hashtags || []).map(t => t.toLowerCase())
+          if (!tags.some(t => t.includes(q))) return false
+        }
+        // 数值范围
+        if (!inRange(v.stats?.digg_count || 0, ff.diggMin, ff.diggMax)) return false
+        if (!inRange(v.stats?.comment_count || 0, ff.commentMin, ff.commentMax)) return false
+        if (!inRange(v.author?.follower_count || 0, ff.fansMin, ff.fansMax)) return false
+        if (!inRange(v.stats?.share_count || 0, ff.shareMin, ff.shareMax)) return false
+        if (!inRange(v.stats?.collect_count || 0, ff.collectMin, ff.collectMax)) return false
+        // 时间范围
+        if (ff.dateFrom && v.create_time) {
+          if (v.create_time < new Date(ff.dateFrom).getTime() / 1000) return false
+        }
+        if (ff.dateTo && v.create_time) {
+          if (v.create_time > new Date(ff.dateTo + 'T23:59:59').getTime() / 1000) return false
+        }
+        return true
+      })
+
+      // 排序
+      if (sortKey.value) {
+        list = [...list].sort((a, b) => {
+          let va, vb
+          switch (sortKey.value) {
+            case 'desc': va = a.desc || ''; vb = b.desc || ''; break
+            case 'author': va = a.author?.nickname || ''; vb = b.author?.nickname || ''; break
+            case 'digg': va = a.stats?.digg_count || 0; vb = b.stats?.digg_count || 0; break
+            case 'comment': va = a.stats?.comment_count || 0; vb = b.stats?.comment_count || 0; break
+            case 'share': va = a.stats?.share_count || 0; vb = b.stats?.share_count || 0; break
+            case 'collect': va = a.stats?.collect_count || 0; vb = b.stats?.collect_count || 0; break
+            case 'fans': va = a.author?.follower_count || 0; vb = b.author?.follower_count || 0; break
+            case 'time': va = a.create_time || 0; vb = b.create_time || 0; break
+            default: return 0
+          }
+          if (typeof va === 'string') return sortAsc.value ? va.localeCompare(vb) : vb.localeCompare(va)
+          return sortAsc.value ? va - vb : vb - va
+        })
+      }
+      return list
+    })
+
+    function sortBy(key) {
+      if (sortKey.value === key) sortAsc.value = !sortAsc.value
+      else { sortKey.value = key; sortAsc.value = false }
+    }
+
+    function sortIcon(key) {
+      if (sortKey.value !== key) return ''
+      return sortAsc.value ? '\u25B2' : '\u25BC'
+    }
+
+    function go(v, param) {
+      view.value = v
+      if (v === 'dashboard') loadVideos()
+      if (v === 'detail' && param) loadDetail(param)
+      if (v === 'crawl') { connectWs(); checkAuth() }
+    }
+
+    function openVideo(id) { go('detail', id) }
+
+    async function loadVideos() {
+      try {
+        const res = await fetch('/api/videos?limit=500')
+        const data = await res.json()
+        videos.value = data.videos
+        total.value = data.total
+      } catch (e) { console.error(e) }
+    }
+
+    async function loadDetail(id) {
+      try {
+        const res = await fetch(`/api/videos/${id}`)
+        detail.value = await res.json()
+      } catch (e) { console.error(e) }
+    }
+
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/status')
+        const data = await res.json()
+        loggedIn.value = data.logged_in
+      } catch {}
+    }
+
+    async function doLogin() {
+      crawlLog.value = []
+      try {
+        await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookie_path: crawlCookiePath.value }),
+        })
+        crawlStatus.value = 'running'
+        connectWs()
+      } catch (e) { console.error(e) }
+    }
+
+    async function startCrawl() {
+      crawlLog.value = []
+      const body = {
+        type: crawlType.value,
+        max_count: crawlCount.value,
+        headless: crawlHeadless.value,
+        enrich_author: crawlEnrich.value,
+        cookie_path: crawlCookiePath.value,
+        output: crawlOutput.value,
+        url: crawlUrl.value,
+        with_replies: crawlWithReplies.value,
+        keyword: crawlKeyword.value,
+        search_type: crawlSearchType.value,
+      }
+      try {
+        await fetch('/api/crawl/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        crawlStatus.value = 'running'
+        connectWs()
+      } catch (e) { console.error(e) }
+    }
+
+    async function stopCrawl() {
+      try {
+        await fetch('/api/crawl/stop', { method: 'POST' })
+        crawlStatus.value = 'stopping'
+      } catch (e) { console.error(e) }
+    }
+
+    async function exportExcel() {
+      try {
+        const res = await fetch('/api/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videos: filteredVideos.value }),
+        })
+        if (!res.ok) throw new Error('导出失败')
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const disposition = res.headers.get('Content-Disposition') || ''
+        const match = disposition.match(/filename="(.+?)"/)
+        a.download = match ? match[1] : 'export.xlsx'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      } catch (e) { console.error(e) }
+    }
+
+    function connectWs() {
+      if (ws && ws.readyState <= 1) return
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${location.host}/api/ws`)
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'video') {
+          crawlLog.value.push(msg)
+          nextTick(() => {
+            const el = document.querySelector('.crawl-log')
+            if (el) el.scrollTop = el.scrollHeight
+          })
+        } else if (msg.type === 'done' || msg.type === 'stopped') {
+          crawlStatus.value = 'idle'
+          checkAuth()
+        } else if (msg.type === 'error') {
+          crawlStatus.value = 'idle'
+          crawlLog.value.push({ index: '!', desc: msg.message })
+        }
+      }
+      ws.onclose = () => { ws = null }
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/crawl/status')
+        const data = await res.json()
+        crawlStatus.value = data.status
+      } catch {}
+    }
+
+    function formatNum(n) {
+      if (n == null) return '0'
+      if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+      return n.toLocaleString()
+    }
+
+    function formatDuration(ms) {
+      if (!ms) return '-'
+      const s = Math.round(ms / 1000)
+      const m = Math.floor(s / 60)
+      return `${m}:${String(s % 60).padStart(2, '0')}`
+    }
+
+    function formatTime(ts) {
+      if (!ts) return '-'
+      const d = new Date(ts * 1000)
+      return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    }
+
+    onMounted(() => { loadVideos(); fetchStatus(); checkAuth() })
+    onUnmounted(() => { if (ws) ws.close() })
+
+    return {
+      view, videos, total, detail, sortKey, sortAsc, loggedIn,
+      showFilters, f, resetFilters,
+      filteredVideos, sortBy, sortIcon,
+      crawlType, crawlUrl, crawlKeyword, crawlSearchType,
+      crawlCount, crawlWithReplies, crawlHeadless, crawlEnrich,
+      crawlCookiePath, crawlOutput, crawlStatus, crawlLog,
+      statusText, needsUrl, urlLabel, urlPlaceholder, canStart,
+      go, openVideo, loadVideos, exportExcel, checkAuth, doLogin, startCrawl, stopCrawl,
+      formatNum, formatDuration, formatTime,
+    }
+  }
+}).mount('#app')
+</script>
+</body>
+</html>

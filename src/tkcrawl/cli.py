@@ -46,9 +46,8 @@ def login(cookie_path: str | None):
 @click.argument("url")
 @click.option("--output", "-o", default="output", help="输出目录")
 @click.option("--headless/--no-headless", default=True, help="无头模式")
-@click.option("--delay", default=2.0, help="请求间隔秒数")
 @click.option("--cookie-path", default=None, help="Cookie 路径")
-def video(url: str, output: str, headless: bool, delay: float, cookie_path: str | None):
+def video(url: str, output: str, headless: bool, cookie_path: str | None):
     """采集视频信息
 
     URL 可以是视频链接或视频 ID
@@ -58,7 +57,7 @@ def video(url: str, output: str, headless: bool, delay: float, cookie_path: str 
 
     async def _run():
         async with DouyinClient(
-            headless=headless, delay=delay, cookie_path=cookie_path
+            headless=headless, cookie_path=cookie_path
         ) as client:
             with Progress(
                 SpinnerColumn(), TextColumn("{task.description}"), console=console
@@ -82,14 +81,12 @@ def video(url: str, output: str, headless: bool, delay: float, cookie_path: str 
 @click.option("--max-count", default=50, help="最大采集作品数")
 @click.option("--output", "-o", default="output", help="输出目录")
 @click.option("--headless/--no-headless", default=True, help="无头模式")
-@click.option("--delay", default=2.0, help="请求间隔秒数")
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 def user(
     url: str,
     max_count: int,
     output: str,
     headless: bool,
-    delay: float,
     cookie_path: str | None,
 ):
     """采集用户信息及作品列表
@@ -101,7 +98,7 @@ def user(
 
     async def _run():
         async with DouyinClient(
-            headless=headless, delay=delay, cookie_path=cookie_path
+            headless=headless, cookie_path=cookie_path
         ) as client:
             with Progress(
                 SpinnerColumn(), TextColumn("{task.description}"), console=console
@@ -132,7 +129,6 @@ def user(
 @click.option("--with-replies", is_flag=True, help="同时采集评论回复")
 @click.option("--output", "-o", default="output", help="输出目录")
 @click.option("--headless/--no-headless", default=True, help="无头模式")
-@click.option("--delay", default=2.0, help="请求间隔秒数")
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 def comments(
     url: str,
@@ -140,7 +136,6 @@ def comments(
     with_replies: bool,
     output: str,
     headless: bool,
-    delay: float,
     cookie_path: str | None,
 ):
     """采集视频评论
@@ -152,7 +147,7 @@ def comments(
 
     async def _run():
         async with DouyinClient(
-            headless=headless, delay=delay, cookie_path=cookie_path
+            headless=headless, cookie_path=cookie_path
         ) as client:
             with Progress(
                 SpinnerColumn(), TextColumn("{task.description}"), console=console
@@ -179,7 +174,6 @@ def comments(
 @click.option("--max-count", default=30, help="最大采集结果数")
 @click.option("--output", "-o", default="output", help="输出目录")
 @click.option("--headless/--no-headless", default=True, help="无头模式")
-@click.option("--delay", default=2.0, help="请求间隔秒数")
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 def search(
     keyword: str,
@@ -187,18 +181,24 @@ def search(
     max_count: int,
     output: str,
     headless: bool,
-    delay: float,
     cookie_path: str | None,
 ):
     """搜索视频或用户
 
     KEYWORD 为搜索关键词
+
+    搜索容易触发验证码，建议使用 --no-headless 模式
     """
     console.print(f"正在搜索: {keyword} (类型: {search_type})")
+    if headless:
+        console.print(
+            "[yellow]提示：搜索容易触发验证码，"
+            "如采集失败请加 --no-headless[/yellow]"
+        )
 
     async def _run():
         async with DouyinClient(
-            headless=headless, delay=delay, cookie_path=cookie_path
+            headless=headless, cookie_path=cookie_path
         ) as client:
             with Progress(
                 SpinnerColumn(), TextColumn("{task.description}"), console=console
@@ -211,6 +211,68 @@ def search(
             console.print(f"[green]搜索结果已保存({len(results)}条): {path}[/green]")
 
     asyncio.run(_run())
+
+
+@cli.command()
+@click.option("--max-count", default=20, help="最大采集视频数")
+@click.option("--output", "-o", default="output", help="输出目录")
+@click.option("--headless/--no-headless", default=True, help="无头模式")
+@click.option("--cookie-path", default=None, help="Cookie 路径")
+def feed(
+    max_count: int,
+    output: str,
+    headless: bool,
+    cookie_path: str | None,
+):
+    """刷推荐流，自动滑动采集视频（自动随机 1-5s 间隔防反爬）"""
+    console.print(f"开始刷推荐流，随机 1-5s 间隔，目标 {max_count} 个视频")
+
+    async def _run():
+        async with DouyinClient(
+            headless=headless, cookie_path=cookie_path
+        ) as client:
+            seen_authors = set()
+
+            async def on_video(vid, idx):
+                # 补全作者信息（同一作者只请求一次）
+                if vid.author.sec_uid and vid.author.sec_uid not in seen_authors:
+                    seen_authors.add(vid.author.sec_uid)
+                    console.print(
+                        f"  [dim]正在获取作者 {vid.author.nickname} 的详细信息...[/dim]"
+                    )
+                    await client.enrich_author(vid)
+
+                desc = vid.desc[:40] if vid.desc else "(无标题)"
+                fans = vid.author.follower_count
+                fans_str = f"  粉丝: {fans:,}" if fans else ""
+                console.print(
+                    f"  [cyan]#{idx}[/cyan] {desc}  "
+                    f"[dim]❤ {vid.stats.digg_count:,}{fans_str}[/dim]"
+                )
+                save_video(output, vid)
+
+            videos = await client.crawl_feed(
+                max_count=max_count,
+                on_video=on_video,
+            )
+            console.print(
+                f"\n[green]采集完成！共 {len(videos)} 个视频，"
+                f"保存在 output/videos/[/green]"
+            )
+
+    asyncio.run(_run())
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="监听地址")
+@click.option("--port", default=8000, type=int, help="监听端口")
+def web(host: str, port: int):
+    """启动知空 Web 界面"""
+    import uvicorn
+
+    console.print(f"[bold]知空[/bold] Web 界面启动中...")
+    console.print(f"[blue]-> http://{host}:{port}[/blue]")
+    uvicorn.run("tkcrawl.server:app", host=host, port=port)
 
 
 if __name__ == "__main__":
