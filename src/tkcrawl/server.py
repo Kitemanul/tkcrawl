@@ -176,6 +176,9 @@ async def start_crawl(req: CrawlRequest):
             await client.start()
 
             async def on_video(video: VideoInfo, index: int):
+                if not video.is_valid:
+                    logger.debug(f"跳过无效数据: {video.aweme_id}")
+                    return
                 if req.enrich_author and video.author.sec_uid:
                     if video.author.sec_uid not in seen_authors:
                         seen_authors.add(video.author.sec_uid)
@@ -249,6 +252,9 @@ async def start_crawl(req: CrawlRequest):
                 )
                 for i, item in enumerate(results):
                     if isinstance(item, VideoInfo):
+                        if not item.is_valid:
+                            logger.debug(f"跳过无效搜索结果: {item.aweme_id}")
+                            continue
                         if req.enrich_author and item.author.sec_uid:
                             if item.author.sec_uid not in seen_authors:
                                 seen_authors.add(item.author.sec_uid)

@@ -108,6 +108,14 @@
             <input type="date" v-model="f.dateTo">
           </div>
         </div>
+        <div class="filter-item filter-range">
+          <label>抓取时间</label>
+          <div class="range-inputs">
+            <input type="date" v-model="f.crawlFrom">
+            <span class="range-sep">~</span>
+            <input type="date" v-model="f.crawlTo">
+          </div>
+        </div>
       </div>
     </div>
 
@@ -124,6 +132,7 @@
             <th class="col-num" @click="sortBy('collect')">收藏 {{ sortIcon('collect') }}</th>
             <th class="col-num" @click="sortBy('fans')">粉丝 {{ sortIcon('fans') }}</th>
             <th class="col-time" @click="sortBy('time')">发布 {{ sortIcon('time') }}</th>
+            <th class="col-time" @click="sortBy('crawl_time')">抓取 {{ sortIcon('crawl_time') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -147,6 +156,7 @@
             <td class="col-num">{{ formatNum(v.stats?.collect_count) }}</td>
             <td class="col-num">{{ formatNum(v.author?.follower_count) }}</td>
             <td class="col-time">{{ formatTime(v.create_time) }}</td>
+            <td class="col-time">{{ formatTime(v.crawl_time) }}</td>
           </tr>
         </tbody>
       </table>
@@ -312,6 +322,7 @@
           <div class="meta-item"><span class="label">收藏</span>{{ formatNum(detail.stats?.collect_count) }}</div>
           <div class="meta-item"><span class="label">时长</span>{{ formatDuration(detail.duration) }}</div>
           <div class="meta-item"><span class="label">发布</span>{{ formatTime(detail.create_time) }}</div>
+          <div class="meta-item"><span class="label">抓取</span>{{ formatTime(detail.crawl_time) }}</div>
           <div class="meta-item"><span class="label">ID</span>{{ detail.aweme_id }}</div>
         </div>
 
@@ -347,6 +358,7 @@ createApp({
       shareMin: null, shareMax: null,
       collectMin: null, collectMax: null,
       dateFrom: '', dateTo: '',
+      crawlFrom: '', crawlTo: '',
     })
     const f = ref(defaultFilters())
 
@@ -440,6 +452,13 @@ createApp({
         if (ff.dateTo && v.create_time) {
           if (v.create_time > new Date(ff.dateTo + 'T23:59:59').getTime() / 1000) return false
         }
+        // 抓取时间范围
+        if (ff.crawlFrom && v.crawl_time) {
+          if (v.crawl_time < new Date(ff.crawlFrom).getTime() / 1000) return false
+        }
+        if (ff.crawlTo && v.crawl_time) {
+          if (v.crawl_time > new Date(ff.crawlTo + 'T23:59:59').getTime() / 1000) return false
+        }
         return true
       })
 
@@ -456,6 +475,7 @@ createApp({
             case 'collect': va = a.stats?.collect_count || 0; vb = b.stats?.collect_count || 0; break
             case 'fans': va = a.author?.follower_count || 0; vb = b.author?.follower_count || 0; break
             case 'time': va = a.create_time || 0; vb = b.create_time || 0; break
+            case 'crawl_time': va = a.crawl_time || 0; vb = b.crawl_time || 0; break
             default: return 0
           }
           if (typeof va === 'string') return sortAsc.value ? va.localeCompare(vb) : vb.localeCompare(va)

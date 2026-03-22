@@ -14,6 +14,7 @@ class AuthorInfo(BaseModel):
     following_count: int = 0
     total_favorited: int = 0
     aweme_count: int = 0
+    verified: bool = False  # 是否认证账号（蓝 V / 黄 V）
 
 
 class VideoStats(BaseModel):
@@ -84,6 +85,10 @@ class VideoInfo(BaseModel):
                 following_count=author_data.get("following_count", 0),
                 total_favorited=int(author_data.get("total_favorited", 0) or 0),
                 aweme_count=author_data.get("aweme_count", 0),
+                verified=bool(
+                    author_data.get("custom_verify", "")
+                    or author_data.get("enterprise_verify_reason", "")
+                ),
             ),
             stats=VideoStats(
                 play_count=stats_data.get("play_count", 0),

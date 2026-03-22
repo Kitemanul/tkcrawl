@@ -78,18 +78,62 @@ def build_comment_reply_params(
 
 
 def build_search_params(
-    keyword: str, search_type: str = "video", offset: int = 0, count: int = 20
+    keyword: str,
+    search_type: str = "video",
+    offset: int = 0,
+    count: int = 20,
+    sort_type: str = "0",
+    publish_time: str = "0",
+    filter_duration: str = "",
 ) -> dict:
+    """构造搜索 API 请求参数。
+
+    Args:
+        keyword: 搜索关键词
+        search_type: "video" 或 "user"
+        offset: 分页偏移量
+        count: 每页返回数量
+        sort_type: 排序方式 — "0" 综合 / "1" 最多点赞 / "2" 最新发布
+        publish_time: 发布时间 — "0" 不限 / "1" 一天内 / "7" 一周内 / "182" 六个月内
+        filter_duration: 视频时长 — "" 不限 / "0" 1分钟内 / "1" 1-5分钟 / "2" 5分钟以上
+
+    Note:
+        这些参数由浏览器在发出真实 API 请求时携带（通过 URL 导航或筛选 UI 点击触发），
+        无需手动构造签名。此函数主要用于 URL 回退路径的参数拼接。
+    """
     params = {
         **COMMON_PARAMS,
         "keyword": keyword,
         "offset": str(offset),
         "count": str(count),
         "search_source": "normal_search",
-        "sort_type": "0",
-        "publish_time": "0",
+        "sort_type": sort_type,
+        "publish_time": publish_time,
     }
     if search_type == "video":
         params["search_channel"] = "aweme_video_web"
-        params["filter_selected"] = ""
+        # filter_duration 为空字符串时不传（代表不限时长）
+        params["filter_selected"] = filter_duration
     return params
+
+
+# 搜索筛选条件的 UI 文本映射（用于模拟点击搜索页筛选按钮）
+SEARCH_SORT_LABELS: dict[str, str] = {
+    "0": "",          # 综合排序（默认，无需点击）
+    "1": "最多点赞",
+    "2": "最新发布",
+}
+
+SEARCH_TIME_LABELS: dict[str, str] = {
+    "0": "",          # 不限（默认，无需点击）
+    "1": "一天内",
+    "7": "一周内",
+    "182": "六个月内",
+}
+
+SEARCH_DURATION_LABELS: dict[str, str] = {
+    "": "",           # 不限（默认，无需点击）
+    "0": "1分钟以内",
+    "1": "1-5分钟",
+    "2": "5分钟以上",
+}
