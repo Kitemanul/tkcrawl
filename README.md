@@ -67,6 +67,8 @@ uv run tkcrawl search "Python教程" --type video --max-count 30
 
 通用参数：`--headless/--no-headless`、`--cookie-path`、`-o/--output`
 
+默认使用有头模式（`--no-headless`），如需显式改回无头模式可传 `--headless`。
+
 ## 数据存储
 
 采集的数据以 JSON 格式保存在 `output/` 目录：

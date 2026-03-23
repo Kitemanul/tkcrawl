@@ -5,9 +5,13 @@ import json
 import logging
 import random
 import time
-from urllib.parse import quote, urlencode
 
-from playwright.async_api import Page, Response, async_playwright
+from playwright.async_api import (
+    Page,
+    Response,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 from tkcrawl.auth import load_cookies, save_cookies
 from tkcrawl.endpoints import (
@@ -15,6 +19,7 @@ from tkcrawl.endpoints import (
     SEARCH_DURATION_LABELS,
     SEARCH_SORT_LABELS,
     SEARCH_TIME_LABELS,
+    build_search_page_url,
 )
 from tkcrawl.filters import VideoFilter
 from tkcrawl.models import Comment, UserInfo, VideoInfo
@@ -49,7 +54,7 @@ class DouyinClient:
 
     def __init__(
         self,
-        headless: bool = True,
+        headless: bool = False,
         cookie_path: str | None = None,
         rate_limit: float = 1.0,
     ):
@@ -362,7 +367,8 @@ class DouyinClient:
                     self._captcha_count += 1
                     logger.warning(
                         "⚠️  检测到验证码（本次会话第 %d 次）！"
-                        "如是无头模式请用 --no-headless 重试，等待验证码消失...",
+                        "如果当前使用无头模式，请改用默认有头模式重试；"
+                        "等待验证码消失...",
                         self._captcha_count,
                     )
                     # 验证码频率过高时提醒用户降速
@@ -394,7 +400,7 @@ class DouyinClient:
             pass
         return False
 
-    # ---- 搜索筛选 UI 操作 ----
+    # ---- 视频详情 ----
 
     async def _click_search_filters(
         self,
@@ -402,30 +408,15 @@ class DouyinClient:
         publish_time: str,
         filter_duration: str,
     ) -> bool:
-        """点击搜索结果页的筛选 UI 按钮，触发带筛选条件的重新搜索。
-
-        抖音搜索页有三组筛选按钮（排序 / 发布时间 / 视频时长），
-        通过点击这些按钮，浏览器会自动携带正确的签名参数重新发送 API 请求。
-        这比直接修改 API URL 参数更可靠（不会破坏签名）。
-
-        筛选按钮文本（来自 endpoints.py 的映射表）：
-        - 排序："最多点赞" / "最新发布"
-        - 时间："一天内" / "一周内" / "六个月内"
-        - 时长："1分钟以内" / "1-5分钟" / "5分钟以上"
-
-        Returns:
-            True — 至少点击了一个筛选按钮；False — 未能找到按钮（静默失败）
-        """
+        """点击搜索结果页筛选按钮，触发带筛选条件的重新搜索。"""
         clicked_any = False
 
         async def _try_click_label(label: str) -> bool:
-            """尝试通过文本内容定位并点击筛选按钮"""
-            # 按优先级尝试多种选择器，text= 最通用，class 限定减少误点
             selectors = [
                 f'[class*="filter"] :text-is("{label}")',
                 f'[class*="sort"] :text-is("{label}")',
                 f'[class*="tab"] :text-is("{label}")',
-                f':text-is("{label}")',  # 兜底：全页匹配（范围最大）
+                f':text-is("{label}")',
             ]
             for sel in selectors:
                 try:
@@ -437,35 +428,57 @@ class DouyinClient:
                         return True
                 except Exception:
                     continue
-            logger.debug("未找到筛选按钮: '%s'，跳过", label)
+            logger.debug("未找到筛选按钮: %s", label)
             return False
 
-        # 等待搜索结果页面稳定后再点击
         await self._page.wait_for_timeout(800)
 
-        # 按排序方式点击
         sort_label = SEARCH_SORT_LABELS.get(sort_type, "")
-        if sort_label:
-            if await _try_click_label(sort_label):
-                clicked_any = True
-                await asyncio.sleep(0.5)
+        if sort_label and await _try_click_label(sort_label):
+            clicked_any = True
+            await asyncio.sleep(0.5)
 
-        # 按发布时间点击
         time_label = SEARCH_TIME_LABELS.get(publish_time, "")
-        if time_label:
-            if await _try_click_label(time_label):
-                clicked_any = True
-                await asyncio.sleep(0.5)
+        if time_label and await _try_click_label(time_label):
+            clicked_any = True
+            await asyncio.sleep(0.5)
 
-        # 按视频时长点击
         duration_label = SEARCH_DURATION_LABELS.get(filter_duration, "")
-        if duration_label:
-            if await _try_click_label(duration_label):
-                clicked_any = True
+        if duration_label and await _try_click_label(duration_label):
+            clicked_any = True
 
         return clicked_any
 
-    # ---- 视频详情 ----
+    async def _search_via_input(self, keyword: str, search_type: str) -> None:
+        """通过搜索框输入关键词，作为 URL 导航失败时的回退路径。"""
+        if "/search/" not in self._page.url:
+            await self._page.goto(BASE_URL, wait_until="domcontentloaded")
+            await self._page.wait_for_timeout(2000)
+            await self._dismiss_popups()
+
+        search_input = self._page.locator(
+            'input[data-e2e="searchbar-input"],'
+            ' input[placeholder*="搜索"],'
+            ' input[class*="search"]'
+        ).first
+
+        await search_input.click(timeout=3000)
+        await search_input.fill("")
+        await self._page.wait_for_timeout(300)
+        for ch in keyword:
+            await search_input.type(ch, delay=random.randint(50, 150))
+        await self._page.wait_for_timeout(500)
+        await self._page.keyboard.press("Enter")
+        await self._page.wait_for_timeout(2000)
+
+        if search_type == "user":
+            try:
+                tab = self._page.locator('text="用户"').first
+                if await tab.is_visible(timeout=2000):
+                    await tab.click()
+                    await self._page.wait_for_timeout(1500)
+            except Exception:
+                pass
 
     async def get_video(self, aweme_id: str) -> VideoInfo:
         """获取视频详情 — 访问视频页面，拦截 aweme/detail API"""
@@ -682,19 +695,20 @@ class DouyinClient:
         filter_duration: str = "",
         video_filter: VideoFilter | None = None,
     ) -> list[VideoInfo] | list[UserInfo]:
-        """搜索视频或用户 — 通过搜索框输入关键词，拦截搜索 API
+        """搜索视频或用户 — 优先直接导航搜索页，必要时回退到 UI 搜索
 
         第一层：请求端筛选
-            - sort_type / publish_time / filter_duration 通过点击搜索页 UI 按钮实现，
-              浏览器自动携带正确签名重新请求，无需逆向 API。
-            - 若 UI 按钮点击失败（页面结构变化），静默降级为抓取后过滤。
+            - sort_type / publish_time / filter_duration 通过搜索结果页 URL 参数传入，
+              浏览器自动携带正确签名发起真实搜索请求，无需逆向 API。
+            - 视频时长对应搜索页的 `filter_selected` 参数。
+            - 若搜索页导航失败，则回退到搜索框输入 + UI 筛选。
 
         第二层：存储前过滤
             - video_filter 在解析数据后、返回前进行客户端过滤。
             - max_count 按过滤后的有效条数计算，确保返回数量符合预期。
 
         反爬说明：
-            - 搜索比推荐流更容易触发验证码，建议使用 --no-headless 模式。
+            - 搜索比推荐流更容易触发验证码，默认使用有头模式更稳。
             - 超过 MAX_SEARCH_PAGES 页后自动停止，防止过度请求。
             - 每页间隔使用递增延迟（_progressive_delay）。
 
@@ -732,42 +746,21 @@ class DouyinClient:
         # ---- 第一阶段：导航到搜索页，获取初始结果 ----
 
         async def do_search():
-            """模拟用户操作进行搜索（比直接跳 URL 更不容易触发验证码）"""
-            if "/search/" not in self._page.url:
-                await self._page.goto(BASE_URL, wait_until="domcontentloaded")
-                await self._page.wait_for_timeout(2000)
-                await self._dismiss_popups()
-
-            # 查找搜索框
-            search_input = self._page.locator(
-                'input[data-e2e="searchbar-input"],'
-                ' input[placeholder*="搜索"],'
-                ' input[class*="search"]'
-            ).first
+            """导航到标准搜索页，筛选参数通过 URL query string 传入。"""
+            url = build_search_page_url(
+                keyword,
+                search_type=search_type,
+                sort_type=sort_type,
+                publish_time=publish_time,
+                filter_duration=filter_duration,
+            )
+            logger.debug("导航到搜索页: %s", url)
             try:
-                await search_input.click(timeout=3000)
-                await search_input.fill("")
-                await self._page.wait_for_timeout(300)
-                # 逐字输入，模拟真人（50-150ms 每字）
-                for ch in keyword:
-                    await search_input.type(ch, delay=random.randint(50, 150))
-                await self._page.wait_for_timeout(500)
-                await self._page.keyboard.press("Enter")
-                await self._page.wait_for_timeout(2000)
-            except Exception:
-                # 搜索框找不到，回退到 URL 直接跳转
-                # 在 URL 中带入筛选参数（sort_type / publish_time）
-                encoded = quote(keyword)
-                type_param = "user" if search_type == "user" else "video"
-                extra = ""
-                if sort_type != "0":
-                    extra += f"&sort_type={sort_type}"
-                if publish_time != "0":
-                    extra += f"&publish_time={publish_time}"
-                url = f"{BASE_URL}/search/{encoded}?type={type_param}{extra}"
-                logger.debug("搜索框不可用，回退 URL 导航: %s", url)
-                await self._page.goto(url, wait_until="domcontentloaded")
-                await self._page.wait_for_timeout(2000)
+                await self._page.goto(url, wait_until="commit", timeout=45000)
+            except PlaywrightTimeoutError:
+                logger.warning("搜索页导航超时，继续等待搜索 API: %s", url)
+            await self._page.wait_for_timeout(2000)
+            await self._dismiss_popups()
 
             # 如果搜索用户，点击"用户" tab
             if search_type == "user":
@@ -796,30 +789,45 @@ class DouyinClient:
                 )
 
         if not data:
+            logger.info("搜索页直达未获取到结果，回退到搜索框输入")
+
+            async def do_search_via_input():
+                await self._search_via_input(keyword, search_type)
+
+            data = await self._wait_for_api_multi(
+                api_patterns, do_search_via_input, timeout=20000
+            )
+
+            if not data:
+                captcha_found = await self._check_captcha()
+                if captcha_found:
+                    logger.info("UI 搜索后验证码已处理，重新等待搜索结果...")
+                    data = await self._wait_for_api_multi(
+                        api_patterns,
+                        lambda: self._page.wait_for_timeout(1000),
+                        timeout=15000,
+                    )
+
+            if data and has_api_filter and search_type == "video":
+                logger.info("UI 搜索已获取结果，尝试点击筛选按钮应用请求端过滤")
+
+                async def do_filter():
+                    await self._click_search_filters(
+                        sort_type, publish_time, filter_duration
+                    )
+
+                filtered_data = await self._wait_for_api_multi(
+                    api_patterns, do_filter, timeout=12000
+                )
+                if filtered_data:
+                    data = filtered_data
+
+        if not data:
             logger.warning(
                 "未获取到搜索结果，可能被验证码拦截。"
-                "请使用 --no-headless 模式并手动完成验证码。"
+                "请使用默认有头模式并手动完成验证码。"
             )
             return results
-
-        # ---- 第二阶段（可选）：点击 UI 筛选按钮，获取筛选后的结果 ----
-        if has_api_filter and search_type == "video":
-            logger.info("正在点击搜索筛选按钮...")
-
-            async def do_filter():
-                await self._click_search_filters(sort_type, publish_time, filter_duration)
-
-            filtered_data = await self._wait_for_api_multi(
-                api_patterns, do_filter, timeout=12000
-            )
-            if filtered_data:
-                logger.info("搜索筛选条件已应用，使用筛选后的结果")
-                data = filtered_data
-            else:
-                logger.warning(
-                    "未能捕获筛选后的 API 响应（可能 UI 结构已变化），"
-                    "将使用原始结果 + 客户端过滤兜底"
-                )
 
         # ---- 解析初始结果 ----
         def _passes_filter(item) -> bool:

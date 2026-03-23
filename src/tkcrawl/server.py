@@ -144,7 +144,7 @@ async def start_login(req: LoginRequest):
 class CrawlRequest(BaseModel):
     type: str = "feed"  # feed | video | user | comments | search
     max_count: int = 20
-    headless: bool = True
+    headless: bool = False
     enrich_author: bool = True
     cookie_path: str = ""
     output: str = ""

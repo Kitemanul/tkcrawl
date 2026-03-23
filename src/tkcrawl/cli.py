@@ -66,7 +66,11 @@ def login(cookie_path: str | None):
 @cli.command()
 @click.argument("url")
 @click.option("--output", "-o", default="output", help="输出目录")
-@click.option("--headless/--no-headless", default=True, help="无头模式")
+@click.option(
+    "--headless/--no-headless",
+    default=False,
+    help="是否使用无头模式（默认有头，更稳定）",
+)
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 def video(url: str, output: str, headless: bool, cookie_path: str | None):
     """采集视频信息
@@ -101,7 +105,11 @@ def video(url: str, output: str, headless: bool, cookie_path: str | None):
 @click.argument("url")
 @click.option("--max-count", default=50, help="最大采集作品数")
 @click.option("--output", "-o", default="output", help="输出目录")
-@click.option("--headless/--no-headless", default=True, help="无头模式")
+@click.option(
+    "--headless/--no-headless",
+    default=False,
+    help="是否使用无头模式（默认有头，更稳定）",
+)
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 def user(
     url: str,
@@ -149,7 +157,11 @@ def user(
 @click.option("--max-count", default=100, help="最大采集评论数")
 @click.option("--with-replies", is_flag=True, help="同时采集评论回复")
 @click.option("--output", "-o", default="output", help="输出目录")
-@click.option("--headless/--no-headless", default=True, help="无头模式")
+@click.option(
+    "--headless/--no-headless",
+    default=False,
+    help="是否使用无头模式（默认有头，更稳定）",
+)
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 def comments(
     url: str,
@@ -194,7 +206,11 @@ def comments(
 )
 @click.option("--max-count", default=30, help="最大采集结果数（按过滤后计数）")
 @click.option("--output", "-o", default="output", help="输出目录")
-@click.option("--headless/--no-headless", default=True, help="无头模式")
+@click.option(
+    "--headless/--no-headless",
+    default=False,
+    help="是否使用无头模式（默认有头，更稳定）",
+)
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 # ---- 第一层：请求端筛选（通过 UI 按钮控制搜索 API 返回范围）----
 @click.option(
@@ -271,7 +287,8 @@ def search(
 
     KEYWORD 为搜索关键词
 
-    搜索容易触发验证码，建议使用 --no-headless 模式。
+    默认使用有头模式，以降低搜索触发验证码的概率。
+    如显式启用 --headless，搜索失败概率会更高。
 
     \b
     示例：
@@ -318,8 +335,8 @@ def search(
 
     if headless:
         console.print(
-            "[yellow]提示：搜索容易触发验证码，"
-            "如采集失败请加 --no-headless[/yellow]"
+            "[yellow]提示：当前启用了无头模式，"
+            "搜索更容易触发验证码[/yellow]"
         )
 
     async def _run():
@@ -348,7 +365,11 @@ def search(
 @cli.command()
 @click.option("--max-count", default=20, help="最大采集视频数（按过滤后计数）")
 @click.option("--output", "-o", default="output", help="输出目录")
-@click.option("--headless/--no-headless", default=True, help="无头模式")
+@click.option(
+    "--headless/--no-headless",
+    default=False,
+    help="是否使用无头模式（默认有头，更稳定）",
+)
 @click.option("--cookie-path", default=None, help="Cookie 路径")
 # ---- 第二层：存储前客户端过滤 ----
 @click.option("--min-likes", default=0, help="最小点赞数（0 = 不限）")

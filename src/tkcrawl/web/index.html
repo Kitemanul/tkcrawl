@@ -251,8 +251,8 @@
         <div class="param-item">
           <label>浏览器模式</label>
           <select v-model="crawlHeadless">
-            <option :value="true">无头（后台运行）</option>
-            <option :value="false">有头（可见浏览器）</option>
+            <option :value="false">有头（默认，推荐）</option>
+            <option :value="true">无头（更容易触发风控）</option>
           </select>
         </div>
 
@@ -373,7 +373,7 @@ createApp({
     const crawlSearchType = ref('video')
     const crawlCount = ref(20)
     const crawlWithReplies = ref(false)
-    const crawlHeadless = ref(true)
+    const crawlHeadless = ref(false)
     const crawlEnrich = ref(true)
     const crawlCookiePath = ref('')
     const crawlOutput = ref('')

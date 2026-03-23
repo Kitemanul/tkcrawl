@@ -1,5 +1,7 @@
 """抖音 API 端点常量和请求参数构造"""
 
+from urllib.parse import quote, urlencode
+
 BASE_URL = "https://www.douyin.com"
 API_BASE = "https://www.douyin.com/aweme/v1/web"
 
@@ -98,8 +100,8 @@ def build_search_params(
         filter_duration: 视频时长 — "" 不限 / "0" 1分钟内 / "1" 1-5分钟 / "2" 5分钟以上
 
     Note:
-        这些参数由浏览器在发出真实 API 请求时携带（通过 URL 导航或筛选 UI 点击触发），
-        无需手动构造签名。此函数主要用于 URL 回退路径的参数拼接。
+        这些参数由浏览器在导航到搜索结果页后发出的真实 API 请求中携带，
+        无需手动构造签名。此函数用于和搜索接口参数保持一致。
     """
     params = {
         **COMMON_PARAMS,
@@ -113,26 +115,47 @@ def build_search_params(
     if search_type == "video":
         params["search_channel"] = "aweme_video_web"
         # filter_duration 为空字符串时不传（代表不限时长）
-        params["filter_selected"] = filter_duration
+        if filter_duration != "":
+            params["filter_selected"] = filter_duration
     return params
 
 
-# 搜索筛选条件的 UI 文本映射（用于模拟点击搜索页筛选按钮）
+def build_search_page_url(
+    keyword: str,
+    search_type: str = "video",
+    sort_type: str = "0",
+    publish_time: str = "0",
+    filter_duration: str = "",
+) -> str:
+    """构造搜索结果页 URL，由浏览器自行触发真实搜索请求。"""
+    params = {
+        "type": "user" if search_type == "user" else "video",
+    }
+    if sort_type != "0":
+        params["sort_type"] = sort_type
+    if publish_time != "0":
+        params["publish_time"] = publish_time
+    if search_type == "video" and filter_duration != "":
+        params["filter_selected"] = filter_duration
+    return f"{BASE_URL}/search/{quote(keyword)}?{urlencode(params)}"
+
+
+# 搜索筛选条件显示名称（用于日志/CLI 摘要）
 SEARCH_SORT_LABELS: dict[str, str] = {
-    "0": "",          # 综合排序（默认，无需点击）
+    "0": "",          # 综合排序（默认）
     "1": "最多点赞",
     "2": "最新发布",
 }
 
 SEARCH_TIME_LABELS: dict[str, str] = {
-    "0": "",          # 不限（默认，无需点击）
+    "0": "",          # 不限（默认）
     "1": "一天内",
     "7": "一周内",
     "182": "六个月内",
 }
 
 SEARCH_DURATION_LABELS: dict[str, str] = {
-    "": "",           # 不限（默认，无需点击）
+    "": "",           # 不限（默认）
     "0": "1分钟以内",
     "1": "1-5分钟",
     "2": "5分钟以上",
